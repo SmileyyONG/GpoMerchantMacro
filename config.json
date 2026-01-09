@@ -2,13 +2,20 @@
   "webhook": "https://discord.com/api/webhooks/1328886852639260704/qyVOvhDiF2Gk9o4gfZ-igQ3OpbNQWlSTm8kIJn-vn8Qy_vIt96nvezlG_JDiMKp7aPBr",
   "threshold": 0.5,
   "delay": 1.0,
-  "auto_interact": true,
   "region": [
-    640,
-    4,
-    652,
-    99
+    650,
+    0,
+    606,
+    101
   ],
-  "search_mode": true,
+  "ocr_region": [
+    848,
+    89,
+    224,
+    17
+  ],
+  "selected_items": [
+    "race_reroll.webp"
+  ],
   "show_detection": true
 }
