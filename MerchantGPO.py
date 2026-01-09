@@ -16,36 +16,7 @@ import sys
 import ctypes
 import re
 import io
-
-# Try to import pytesseract and configure it
-try:
-    import pytesseract
-    
-    # Try to find Tesseract executable on Windows
-    if sys.platform == "win32":
-        possible_paths = [
-            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-            r"C:\Users\{}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe".format(os.getenv('USERNAME')),
-            r"C:\Tesseract-OCR\tesseract.exe"
-        ]
-        
-        tesseract_found = False
-        for path in possible_paths:
-            if os.path.exists(path):
-                pytesseract.pytesseract.tesseract_cmd = path
-                tesseract_found = True
-                print(f"Tesseract found at: {path}")
-                break
-        
-        if not tesseract_found:
-            print("Warning: Tesseract executable not found in common locations.")
-            print("Please set pytesseract.pytesseract.tesseract_cmd to your Tesseract path.")
-    
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
-    print("Warning: pytesseract not installed. Install with: pip install pytesseract")
+import webbrowser
 
 SendInput = ctypes.windll.user32.SendInput
 
@@ -120,10 +91,9 @@ def PressAndReleaseKey(hexKeyCode, hold_time=0.05):
     ReleaseKey(hexKeyCode)
 
 class RobloxMerchantFinder:
-    def __init__(self, webhook_url, compass_region=None, ocr_region=None, auto_interact=True, search_mode=False, show_detection=False, root=None, update_vis_callback=None):
+    def __init__(self, webhook_url, compass_region=None, auto_interact=True, search_mode=False, show_detection=False, root=None, update_vis_callback=None):
         self.webhook_url = webhook_url
         self.compass_region = compass_region
-        self.ocr_region = ocr_region
         self.auto_interact = auto_interact
         self.search_mode = search_mode
         self.show_detection = show_detection
@@ -144,128 +114,6 @@ class RobloxMerchantFinder:
         else:
             screenshot = ImageGrab.grab()
         return cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-    
-    def read_distance_ocr(self):
-        """Read distance using template matching for game digits."""
-        if not self.ocr_region:
-            return None
-        
-        try:
-            x, y, w, h = self.ocr_region
-            screenshot = ImageGrab.grab(bbox=(x, y, x + w, y + h))
-            img = np.array(screenshot)
-            
-            # Convert to grayscale and isolate white text
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            _, white = cv2.threshold(gray, 220, 255, cv2.THRESH_BINARY)
-            
-            # Simple pattern matching for common distance numbers
-            # Check for consecutive white pixels that form digit-like shapes
-            height, width = white.shape
-            
-            # Find white pixel columns (where digits likely are)
-            column_density = np.sum(white, axis=0) / 255  # Count white pixels per column
-            
-            # Detect digit regions (groups of columns with white pixels)
-            digit_threshold = height * 0.2  # At least 20% of column should be white
-            in_digit = False
-            digit_regions = []
-            start_x = 0
-            
-            for x_pos in range(width):
-                if column_density[x_pos] > digit_threshold:
-                    if not in_digit:
-                        start_x = x_pos
-                        in_digit = True
-                else:
-                    if in_digit:
-                        digit_regions.append((start_x, x_pos))
-                        in_digit = False
-            
-            if in_digit:
-                digit_regions.append((start_x, width))
-            
-            # Extract and recognize each digit region
-            recognized_digits = []
-            
-            for i, (x1, x2) in enumerate(digit_regions):
-                if x2 - x1 < 3:  # Too narrow, probably noise
-                    continue
-                
-                digit_img = white[:, x1:x2]
-                digit_height, digit_width = digit_img.shape
-                
-                if digit_height < 5 or digit_width < 3:
-                    continue
-                
-                # Simple digit recognition based on white pixel patterns
-                # Count white pixels in different regions of the digit
-                top_half = np.sum(digit_img[:digit_height//2, :])
-                bottom_half = np.sum(digit_img[digit_height//2:, :])
-                left_half = np.sum(digit_img[:, :digit_width//2])
-                right_half = np.sum(digit_img[:, digit_width//2:])
-                middle_row = np.sum(digit_img[digit_height//2-1:digit_height//2+1, :])
-                total_white = np.sum(digit_img)
-                
-                # Normalize
-                total = digit_height * digit_width * 255
-                top_ratio = top_half / total
-                bottom_ratio = bottom_half / total
-                left_ratio = left_half / total
-                right_ratio = right_half / total
-                density = total_white / total
-                
-                # Pattern recognition (rough heuristics for game font)
-                digit = None
-                
-                if density > 0.6:  # Very filled
-                    digit = '0' if abs(top_ratio - bottom_ratio) < 0.1 else '8'
-                elif middle_row > total * 0.15:  # Strong middle line
-                    if top_half > bottom_half * 1.3:
-                        digit = '5'
-                    elif bottom_half > top_half * 1.2:
-                        digit = '2'
-                    else:
-                        digit = '3'
-                elif top_ratio > 0.25 and bottom_ratio > 0.25:
-                    if right_ratio > left_ratio * 1.3:
-                        digit = '1'
-                    else:
-                        digit = '0'
-                elif top_ratio > bottom_ratio * 1.4:
-                    digit = '7'
-                elif bottom_ratio > top_ratio * 1.3:
-                    digit = '2'
-                
-                if digit:
-                    recognized_digits.append(digit)
-            
-            if recognized_digits:
-                # Build the number from recognized digits
-                distance_str = ''.join(recognized_digits)
-                # Extract just the numeric part
-                numbers = re.findall(r'\d+', distance_str)
-                if numbers:
-                    distance = int(numbers[0])
-                    if 1 <= distance <= 999:
-                        print(f"✓ Distance detected: {distance} studs")
-                        return distance
-            
-            # Fallback: Try basic OCR if pattern matching fails
-            if OCR_AVAILABLE:
-                upscaled = cv2.resize(white, None, fx=6, fy=6, interpolation=cv2.INTER_CUBIC)
-                text = pytesseract.image_to_string(upscaled, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
-                nums = re.findall(r'\d+', text)
-                if nums and 1 <= int(nums[0]) <= 999:
-                    distance = int(nums[0])
-                    print(f"✓ Distance (OCR fallback): {distance} studs")
-                    return distance
-            
-            return None
-            
-        except Exception as e:
-            print(f"Distance detection error: {e}")
-            return None
     
     def find_merchant_icon(self, screenshot, template_paths, threshold=0.7):
         if isinstance(template_paths, str):
@@ -1130,13 +978,30 @@ class MacroGUI:
         
         self.config_path = os.path.join(self.script_dir, "config.json")
         
+        # First-time check: If config doesn't exist, show subscription popup
+        if not os.path.exists(self.config_path):
+            self.root.withdraw()  # Hide main window
+            response = messagebox.askyesno(
+                "Quick question",
+                "Do you want to subscribe to Smileyy?",
+                icon='question'
+            )
+            
+            if response:  # User clicked Yes
+                # Open YouTube channel (user will provide the link)
+                youtube_url = "https://www.youtube.com/@SmileyyONG?sub_confirmation=1"
+                webbrowser.open(youtube_url)
+                self.root.deiconify()  # Show main window
+            else:  # User clicked No
+                self.root.destroy()
+                sys.exit()
+        
         self.webhook_var = tk.StringVar(value=self.load_config("webhook", ""))
         self.template_var = tk.StringVar(value="")
         self.merchant_text_var = tk.StringVar(value="")
         self.threshold_var = tk.DoubleVar(value=float(self.load_config("threshold", "0.75")))
         self.delay_var = tk.DoubleVar(value=float(self.load_config("delay", "5.0")))
         self.compass_region = self.load_config("region", None)
-        self.ocr_region = self.load_config("ocr_region", None)
         self.selected_items = self.load_config("selected_items", [])
         self.show_detection_var = tk.BooleanVar(value=self.load_config("show_detection", False))
         
@@ -1238,7 +1103,6 @@ class MacroGUI:
             "threshold": self.threshold_var.get(),
             "delay": self.delay_var.get(),
             "region": self.compass_region,
-            "ocr_region": self.ocr_region,
             "selected_items": self.selected_items,
             "show_detection": self.show_detection_var.get()
         }
@@ -1462,7 +1326,6 @@ class MacroGUI:
         self.finder = RobloxMerchantFinder(
             webhook_url=self.webhook_var.get(),
             compass_region=self.compass_region,
-            ocr_region=self.ocr_region,
             auto_interact=True,
             search_mode=True,
             show_detection=self.show_detection_var.get(),
